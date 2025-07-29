@@ -70,8 +70,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     analyzeSql: async () => {
         set({ isAnalyzing: true, generatedJson: '', generatedSql: '', analysisError: null, sqlTemplateForGroupBy: null });
         const { mainSql, reportName, projectName, configType, jsonType } = get();
-        const API_URL = 'http://localhost:8000/columns/predefined_dataset';
-        // const API_URL = 'https://json-report-backend.onrender.com/columns/predefined_dataset';
+        // const API_URL = 'http://localhost:8000/columns/predefined_dataset';
+        const API_URL = 'https://json-report-backend.onrender.com/columns/predefined_dataset';
 
         try {
             const response = await fetch(API_URL, {
@@ -157,7 +157,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
                 return { name: c.name, dataType: c.dataType };
             }),
             variables: finalVariables,
-            // sql: mainSql.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
             sql: finalSqlForJson.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
             type: DATASET_TYPES.find(t => t.id === selectedDatasetType) || {},
             preQuery: preQueries.split(';').map(q => q.trim()).filter(Boolean),
