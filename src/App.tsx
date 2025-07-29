@@ -1,6 +1,6 @@
 // src/App.tsx
 import { useState, useEffect } from 'react';
-import { Download, Copy, Lightbulb, CheckCircle, Database, AlertCircle } from 'lucide-react';
+import { Lightbulb, Database, AlertCircle } from 'lucide-react';
 import { useConfigStore } from './store/configStore';
 import { AVAILABLE_VARIABLES, DATASET_TYPES } from './constants';
 import { LandingPage } from './components/LandingPage';
@@ -11,17 +11,15 @@ import {
   ColumnCard,
   RadioCard,
   QueryTextarea,
-  ActionButton,
   ThemeToggleButton,
   Spinner,
-  VariableCard
+  VariableCard,
+  CodeViewer
 } from './components/ui-components';
 
 export default function App() {
   // Hooks de estado local para la retroalimentación de copiado
   const [showTool, setShowTool] = useState(false);
-  const [copyJsonSuccess, setCopyJsonSuccess] = useState(false);
-  const [copySqlSuccess, setCopySqlSuccess] = useState(false);
 
   // Obtenemos todo el store de Zustand
   const store = useConfigStore();
@@ -31,39 +29,18 @@ export default function App() {
     document.body.classList.toggle('dark', store.theme === 'dark');
   }, [store.theme]);
 
-  // Función genérica para descargar contenido como archivo
-  const handleDownload = (content: string, filename: string, type: string) => {
-    if (!content) return;
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  const handleCopy = (text: string) => {
+        navigator.clipboard.writeText(text);
+    };
 
-  // Función genérica para copiar texto al portapapeles
-  const handleCopyToClipboard = (content: string, setSuccess: (s: boolean) => void) => {
-    if (!content) return;
-    const textArea = document.createElement("textarea");
-    textArea.value = content;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-9999px";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try {
-      document.execCommand('copy');
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
-    } catch (err) {
-      console.error('Error al copiar:', err);
-    }
-    document.body.removeChild(textArea);
-  };
+    const downloadFile = (content: string, fileName: string, contentType: string) => {
+        const a = document.createElement("a");
+        const file = new Blob([content], { type: contentType });
+        a.href = URL.createObjectURL(file);
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    };
 
   if (!showTool) {
     return (
@@ -88,7 +65,7 @@ export default function App() {
         <main className="grid grid-cols-1 gap-8">
           {/* --- Sección 1: Entradas Principales --- */}
           <Section title="1. Entradas Principales">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <InputField label="Nombre del Reporte" value={store.reportName} onChange={e => store.setReportName(e.target.value)} placeholder="ej: exhibition" />
               <InputField label="Nombre del Proyecto" value={store.projectName} onChange={e => store.setProjectName(e.target.value)} placeholder="ej: project9519" />
               <SelectField
@@ -98,6 +75,14 @@ export default function App() {
               >
                 <option value="adhoc">Adhoc</option>
                 <option value="preset">Preset</option>
+              </SelectField>
+              <SelectField
+                label="Tipo de JSON"
+                value={store.jsonType}
+                onChange={e => store.setJsonType(e.target.value as 'normal' | 'groupBy')}
+              >
+                <option value="normal">JSON Normal</option>
+                <option value="groupBy">JSON GroupBy</option>
               </SelectField>
             </div>
             <div className="mt-6">
@@ -123,18 +108,18 @@ export default function App() {
           {/* --- Sección 2: Configuración de Columnas (condicional) --- */}
           {store.columns.length > 0 && (
             <Section title="2. Configuración de Columnas">
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[600px] overflow-y-auto custom-scroll">
                 {store.columns.map((col, index) => (
-                  <ColumnCard key={index} column={col} index={index} onDataTypeChange={store.handleDataTypeChange} onCustomMessageChange={store.handleCustomMessageChange} />
+                  <ColumnCard key={index} column={col} index={index} jsonType="normal" onDataTypeChange={store.handleDataTypeChange} onCustomMessageChange={store.handleCustomMessageChange} />
                 ))}
               </div>
             </Section>
           )}
 
           {/* --- Secciones 3 y 4 --- */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <Section title="3. Selección de Variables (Opcional)">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-[400px] overflow-y-auto">
                 {AVAILABLE_VARIABLES.map(variable => {
                   const isSelected = store.selectedVariables[variable.var] !== undefined;
                   const alias = store.selectedVariables[variable.var] || '';
@@ -174,38 +159,27 @@ export default function App() {
               <Database className="mr-3 h-6 w-6" />
               Generar JSON y Script SQL
             </button>
-          </Section>
+          </Section>          
 
-          {/* --- Sección 7: Visualización de Resultados (condicional) --- */}
-          {(store.generatedJson || store.generatedSql) && (
-            <Section title="7. Resultados Generados">
-              {/* Visualizador de JSON */}
-              {store.generatedJson && (
-                <div>
-                  <h3 className="text-xl font-semibold mb-3 text-slate-800 dark:text-slate-100">Archivo JSON</h3>
-                  <pre className="bg-slate-900 text-white p-4 rounded-lg shadow-inner overflow-x-auto max-h-[500px]">
-                    <code>{store.generatedJson}</code>
-                  </pre>
-                  <div className="mt-4 flex flex-wrap gap-4">
-                    <ActionButton icon={<Download size={20} />} text="Descargar JSON" onClick={() => handleDownload(store.generatedJson, `${store.projectName}_${store.reportName}_config.json`, 'application/json')} />
-                    <ActionButton icon={copyJsonSuccess ? <CheckCircle size={20} /> : <Copy size={20} />} text={copyJsonSuccess ? "¡Copiado!" : "Copiar JSON"} onClick={() => handleCopyToClipboard(store.generatedJson, setCopyJsonSuccess)} className={copyJsonSuccess ? "bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-100" : ""} />
-                  </div>
-                </div>
-              )}
-
-              {/* Visualizador de SQL */}
-              {store.generatedSql && (
-                <div className="mt-8 pt-8 border-t border-slate-200 dark:border-slate-700">
-                  <h3 className="text-xl font-semibold mb-3 text-slate-800 dark:text-slate-100">Script SQL de Internacionalización</h3>
-                  <pre className="bg-slate-900 text-white p-4 rounded-lg shadow-inner overflow-x-auto max-h-[500px]">
-                    <code>{store.generatedSql}</code>
-                  </pre>
-                  <div className="mt-4 flex flex-wrap gap-4">
-                    <ActionButton icon={<Download size={20} />} text="Descargar SQL" onClick={() => handleDownload(store.generatedSql, `${store.projectName}_${store.reportName}_i18n.sql`, 'text/sql')} />
-                    <ActionButton icon={copySqlSuccess ? <CheckCircle size={20} /> : <Copy size={20} />} text={copySqlSuccess ? "¡Copiado!" : "Copiar SQL"} onClick={() => handleCopyToClipboard(store.generatedSql, setCopySqlSuccess)} className={copySqlSuccess ? "bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-100" : ""} />
-                  </div>
-                </div>
-              )}
+          {store.generatedJson && (
+            <Section title="Resultados Generados">
+              <div className="space-y-8">
+                <CodeViewer
+                  title="config.json"
+                  code={store.generatedJson}
+                  onCopy={() => handleCopy(store.generatedJson)}
+                  onCopyMinified={() => handleCopy(store.generatedJsonMinified)}
+                  onDownload={() => downloadFile(store.generatedJson, 'config.json', 'application/json')}
+                  fileName="config.json"
+                />
+                <CodeViewer
+                  title="i18n.sql"
+                  code={store.generatedSql}
+                  onCopy={() => handleCopy(store.generatedSql)}
+                  onDownload={() => downloadFile(store.generatedSql, 'i18n.sql', 'text/sql')}
+                  fileName="i18n.sql"
+                />
+              </div>
             </Section>
           )}
 

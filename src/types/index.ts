@@ -8,6 +8,10 @@ export interface Column {
     name: string;
     dataType: string;
     customMessage?: string;
+    // Nuevos campos opcionales para el tipo 'groupBy'
+    select?: string;
+    alias?: string;
+    agg?: boolean;
 }
 
 /**
@@ -40,6 +44,7 @@ export interface ConfigState {
     reportName: string;
     projectName: string;
     configType: 'adhoc' | 'preset'
+    jsonType: 'normal' | 'groupBy';
     mainSql: string;
     columns: Column[];
     selectedVariables: Record<string, string>; // { varName: alias }
@@ -47,15 +52,18 @@ export interface ConfigState {
     preQueries: string;
     postQueries: string;
     generatedJson: string;
+    generatedJsonMinified: string;
     generatedSql: string;
     isAnalyzing: boolean;
     analysisError: string | null;
+    sqlTemplateForGroupBy: string | null;
 
     // Acciones para modificar el estado
     toggleTheme: () => void;
     setReportName: (name: string) => void;
     setProjectName: (name: string) => void;
     setConfigType: (type: 'adhoc' | 'preset') => void; // Nueva acción
+    setJsonType: (type: 'normal' | 'groupBy') => void; // Nueva acción
     setMainSql: (sql: string) => void;
     setPreQueries: (queries: string) => void;
     setPostQueries: (queries: string) => void;

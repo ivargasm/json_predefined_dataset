@@ -5,6 +5,7 @@ import { AVAILABLE_VARIABLES, DATASET_TYPES } from '../constants';
 
 export const useConfigStore = create<ConfigState>((set, get) => ({
     // Estado Inicial
+    jsonType: 'normal',
     theme: 'dark',
     reportName: 'exhibition',
     projectName: 'project9519',
@@ -16,9 +17,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     preQueries: 'CREATE TABLE stoiii.temporary_tables.project1335_exhibition_soriana(visit_id int8, year_nbr int, photo_url varchar, place_id int);',
     postQueries: 'DROP TABLE IF EXISTS stoiii.temporary_tables.project1335_exhibition_soriana;',
     generatedJson: '',
+    generatedJsonMinified: '',
     generatedSql: '',
     isAnalyzing: false,
     analysisError: null, // Estado inicial del error
+    sqlTemplateForGroupBy: null,
 
     // Implementación de Acciones
     toggleTheme: () => set(state => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
@@ -28,6 +31,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     setMainSql: (sql) => set({ mainSql: sql }),
     setPreQueries: (queries) => set({ preQueries: queries }),
     setPostQueries: (queries) => set({ postQueries: queries }),
+    setJsonType: (type) => set({ jsonType: type, columns: [], generatedJson: '', generatedSql: '' }), // Limpiamos al cambiar
     
     handleDataTypeChange: (index, newType) => set(state => ({
         columns: state.columns.map((col, i) => i === index ? { ...col, dataType: newType } : col)
@@ -64,10 +68,10 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     setSelectedDatasetType: (id) => set({ selectedDatasetType: id }),
 
     analyzeSql: async () => {
-        set({ isAnalyzing: true, generatedJson: '', generatedSql: '', analysisError: null });
-        const { mainSql, reportName, projectName, configType } = get();
-        // const API_URL = 'http://localhost:8000/columns/predefined_dataset';
-        const API_URL = 'https://json-report-backend.onrender.com/columns/predefined_dataset';
+        set({ isAnalyzing: true, generatedJson: '', generatedSql: '', analysisError: null, sqlTemplateForGroupBy: null });
+        const { mainSql, reportName, projectName, configType, jsonType } = get();
+        const API_URL = 'http://localhost:8000/columns/predefined_dataset';
+        // const API_URL = 'https://json-report-backend.onrender.com/columns/predefined_dataset';
 
         try {
             const response = await fetch(API_URL, {
@@ -75,7 +79,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ query: mainSql, component_type:"table" }),
+                body: JSON.stringify({ query: mainSql, jsonType:jsonType}),
             });
 
             if (!response.ok) {
@@ -83,21 +87,26 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
                 throw new Error(errorData.error || `Error en la API: ${response.statusText}`);
             }
 
-            const data: { columns?: { originalName: string }[], error?: string } = await response.json();
+            const data = await response.json();
             
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            if (data.columns) {
-                const newColumns: Column[] = data.columns.map(col => ({
-                    originalName: col.originalName,
+            const analyzedColumns: Column[] = data.columns.map((col: { alias?: string; originalName: string; select?: string; agg?: string }) => {
+                const nameIdentifier = col.alias || col.originalName;
+                return {
+                    originalName: nameIdentifier,
                     name: `predefined.dataset.column.${reportName || 'report'}.${configType}.${projectName || 'project'}.${col.originalName}`,
                     dataType: 'varchar',
                     customMessage: '',
-                }));
-                set({ columns: newColumns });
-            }
+                    // Mapeamos los nuevos campos si existen
+                    select: col.select,
+                    alias: col.alias,
+                    agg: col.agg,
+                }
+            });
+
+            set({ 
+                columns: analyzedColumns, 
+                sqlTemplateForGroupBy: data.sql_template || null 
+            });
 
         } catch (error) {
             console.error("Error al analizar el SQL:", error);
@@ -109,11 +118,16 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     },
     
     generateOutputs: () => {
-        const { columns, mainSql, selectedVariables, selectedDatasetType, preQueries, postQueries } = get();
+        const { columns, mainSql, selectedVariables, selectedDatasetType, preQueries, postQueries, jsonType, sqlTemplateForGroupBy } = get();
         if (columns.length === 0) {
             console.error("Primero debes analizar el SQL.");
             return;
         }
+
+        // Usamos el template si está disponible, si no, usamos el SQL original
+        const finalSqlForJson = (jsonType === 'groupBy' && sqlTemplateForGroupBy) 
+            ? sqlTemplateForGroupBy 
+            : mainSql;
 
         const finalVariables = Object.entries(selectedVariables).map(([varName, alias]) => {
             const template = AVAILABLE_VARIABLES.find(v => v.var === varName);
@@ -129,9 +143,22 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
         // --- 1. Generación del JSON (lógica existente) ---
         const finalJson = {
-            columns: columns.map(({ name, dataType }) => ({ name, dataType })),
+            columns: columns.map(c => {
+                if (jsonType === 'groupBy') {
+                    return {
+                        name: c.name,
+                        dataType: c.dataType,
+                        select: c.select,
+                        alias: c.alias,
+                        agg: c.agg,
+                    };
+                }
+                // Tipo normal
+                return { name: c.name, dataType: c.dataType };
+            }),
             variables: finalVariables,
-            sql: mainSql.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+            // sql: mainSql.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
+            sql: finalSqlForJson.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(),
             type: DATASET_TYPES.find(t => t.id === selectedDatasetType) || {},
             preQuery: preQueries.split(';').map(q => q.trim()).filter(Boolean),
             postQuery: postQueries.split(';').map(q => q.trim()).filter(Boolean),
@@ -160,6 +187,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         // --- 3. Actualización del estado con ambos resultados ---
         set({ 
             generatedJson: JSON.stringify(finalJson, null, 4),
+            generatedJsonMinified: JSON.stringify(finalJson),
             generatedSql: `${sqlInserts}${sqlValues.slice(0, -2)};`
         });
     }
